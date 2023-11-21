@@ -89,15 +89,60 @@ exports.monitorAllRoutes = functions.pubsub.schedule('every 15 minutes').onRun(a
 exports.exportData = functions.https.onRequest(async (req, res) => {
 
   const db = admin.firestore();
-
-  const activeRoutesSnapshot = await db.collection(`activeRoutes/${req.query.route}/historicalData`).get();
-
   let returnString = '';
 
-  activeRoutesSnapshot.forEach((doc)=>{
-    returnString+=`${doc.data().time.toString()},`;
-    returnString+=`${doc.data().durationSeconds.toString()}\n`;
-  })
+  if(!('route' in req.query)){
+    res.status(400).send('Improperly Formatted Query');
+  }
 
-  res.status(200).send(returnString);
+  try{
+    const activeRoutesSnapshot = await db.collection(`activeRoutes/${req.query.route}/historicalData`).get();
+
+    activeRoutesSnapshot.forEach((doc)=>{
+      returnString+=`${doc.data().time.toString()},`;
+      returnString+=`${doc.data().durationSeconds.toString()}\n`;
+    })
+
+    res.status(200).send(returnString);
+  }
+  catch (error) {
+    console.log(error);
+    res.status(500).send('Server Error, Firestore or Google API may be down');
+  }
+  return;
+
+});
+
+
+exports.addToActiveRoutes = functions.https.onRequest(async (req, res) => {
+  const db = admin.firestore();
+  let setData = {};
+
+  try {
+    const startArr = req.query.start.split(',');
+    const finishArray = req.query.dest.split(',');
+    setData = {
+      active: true,
+      startLat: parseFloat(startArr[0]),
+      startLng: parseFloat(startArr[1]),
+      finishLat: parseFloat(finishArray[0]),
+      finishLat: parseFloat(finishArray[1])
+    }
+  } catch (error) {
+    res.status(400).send('Improperly Formatted Query');
+    return;
+  }
+  
+  if(!('routeName' in req.query)){
+    res.status(400).send('Improperly Formatted Query');
+    return;
+  }
+  
+  await db.doc(`activeRoutes/${req.query.routeName}`).set(setData).catch((error)=>{
+    res.status(500).send('Could Not Update Database');
+    return;
+  });
+  
+  res.status(200).send('Success');
+  return;
 });
