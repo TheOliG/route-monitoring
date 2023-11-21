@@ -10,6 +10,13 @@
 const {onRequest} = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
 
+
+exports.scheduledFunction = functions.pubsub.schedule('every 5 minutes').onRun((context) => {
+  console.log('This will be run every 5 minutes!');
+  return null;
+});
+
+
 // Create and deploy your first functions
 // https://firebase.google.com/docs/functions/get-started
 
