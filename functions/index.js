@@ -1,26 +1,103 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * const {onCall} = require("firebase-functions/v2/https");
- * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
-
-const {onRequest} = require("firebase-functions/v2/https");
-const logger = require("firebase-functions/logger");
+const axios = require('axios').default;
+const functions = require('firebase-functions'); 
+const admin = require('firebase-admin');
+admin.initializeApp();
 
 
-exports.scheduledFunction = functions.pubsub.schedule('every 5 minutes').onRun((context) => {
-  console.log('This will be run every 5 minutes!');
+exports.monitorAllRoutes = functions.pubsub.schedule('every 15 minutes').onRun(async (context) => {
+  const db = admin.firestore();
+  const bulkWriter = db.bulkWriter()
+
+  // We get all of the active routes stored in the database 
+  const activeRoutesSnapshot = await db.collection(`activeRoutes`).get();
+  const activeRoutesArray = [];
+  const queryArray = [];
+
+  try {
+    // We itterate through all the active routes
+    activeRoutesSnapshot.forEach(doc =>{
+
+      const reqBody = {
+        "origin":{
+          "location":{
+            "latLng":{
+              "latitude": doc.data().startLat,
+              "longitude": doc.data().startLng
+            }
+          }
+        },
+        "destination":{
+          "location":{
+            "latLng":{
+              "latitude": doc.data().finishLat,
+              "longitude": doc.data().finishLng
+            }
+          }
+        },
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
+        "computeAlternativeRoutes": false,
+        "routeModifiers": {
+          "avoidTolls": false,
+          "avoidHighways": false,
+          "avoidFerries": true
+        },
+        "languageCode": "en-US"
+      };
+  
+      const reqHeader = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': '', // YOUR API KEY HERE
+        'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
+      };
+  
+      activeRoutesArray.push(doc.ref.path);
+      // We make the API call to the google routes server and store the unresolved promise
+      queryArray.push(axios.post(
+        'https://routes.googleapis.com/directions/v2:computeRoutes',
+        reqBody,
+        { headers: reqHeader }
+      ));
+
+    });
+  
+
+    for(let i = 0; i<queryArray.length; i++){
+      const queryResponse = await queryArray[i];
+      const queryData = queryResponse.data.routes[0];
+
+      // We set the new document to be called the current time and include all of the data
+      bulkWriter.set(db.doc(`${activeRoutesArray[i]}/historicalData/${Date.now().toString()}`),{
+        distanceMeters: queryData.distanceMeters, 
+        durationSeconds: parseInt(queryData.duration.slice(0,-1)),
+        encodedPolyline: queryData.polyline.encodedPolyline,
+        time: Date.now()
+      })
+    }
+    
+    await bulkWriter.flush();
+
+  } catch (error) {
+
+    console.log(error);
+
+  }
+
   return null;
 });
 
+exports.exportData = functions.https.onRequest(async (req, res) => {
 
-// Create and deploy your first functions
-// https://firebase.google.com/docs/functions/get-started
+  const db = admin.firestore();
 
-// exports.helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+  const activeRoutesSnapshot = await db.collection(`activeRoutes/${req.query.route}/historicalData`).get();
+
+  let returnString = '';
+
+  activeRoutesSnapshot.forEach((doc)=>{
+    returnString+=`${doc.data().time.toString()},`;
+    returnString+=`${doc.data().durationSeconds.toString()}\n`;
+  })
+
+  res.status(200).send(returnString);
+});
