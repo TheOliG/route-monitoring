@@ -91,12 +91,12 @@ exports.exportData = functions.https.onRequest(async (req, res) => {
   const db = admin.firestore();
   let returnString = '';
 
-  if(!('route' in req.query)){
+  if(!('routeName' in req.query)){
     res.status(400).send('Improperly Formatted Query');
   }
 
   try{
-    const activeRoutesSnapshot = await db.collection(`activeRoutes/${req.query.route}/historicalData`).get();
+    const activeRoutesSnapshot = await db.collection(`activeRoutes/${req.query.routeName}/historicalData`).get();
 
     activeRoutesSnapshot.forEach((doc)=>{
       returnString+=`${doc.data().time.toString()},`;
@@ -126,7 +126,7 @@ exports.addToActiveRoutes = functions.https.onRequest(async (req, res) => {
       startLat: parseFloat(startArr[0]),
       startLng: parseFloat(startArr[1]),
       finishLat: parseFloat(finishArray[0]),
-      finishLat: parseFloat(finishArray[1])
+      finishLng: parseFloat(finishArray[1])
     }
   } catch (error) {
     res.status(400).send('Improperly Formatted Query');
