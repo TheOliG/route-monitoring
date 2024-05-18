@@ -148,3 +148,87 @@ exports.addToActiveRoutes = functions.https.onRequest(async (req, res) => {
   res.status(200).send('Success');
   return;
 });
+
+
+exports.testAllRoutes = functions.https.onRequest(async (req, res) => {
+  const db = admin.firestore();
+  const bulkWriter = db.bulkWriter()
+
+  // We get all of the active routes stored in the database 
+  const activeRoutesSnapshot = await db.collection(`activeRoutes`).get();
+  const activeRoutesArray = [];
+  const queryArray = [];
+
+  try {
+    // We itterate through all the active routes
+    activeRoutesSnapshot.forEach(doc =>{
+
+      const reqBody = {
+        "origin":{
+          "location":{
+            "latLng":{
+              "latitude": doc.data().startLat,
+              "longitude": doc.data().startLng
+            }
+          }
+        },
+        "destination":{
+          "location":{
+            "latLng":{
+              "latitude": doc.data().finishLat,
+              "longitude": doc.data().finishLng
+            }
+          }
+        },
+        "travelMode": "DRIVE",
+        "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
+        "computeAlternativeRoutes": false,
+        "routeModifiers": {
+          "avoidTolls": false,
+          "avoidHighways": false,
+          "avoidFerries": true
+        },
+        "languageCode": "en-US"
+      };
+  
+      const reqHeader = {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': '', // YOUR API KEY HERE
+        'X-Goog-FieldMask': 'routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline'
+      };
+  
+      activeRoutesArray.push(doc.ref.path);
+      // We make the API call to the google routes server and store the unresolved promise
+      queryArray.push(axios.post(
+        'https://routes.googleapis.com/directions/v2:computeRoutes',
+        reqBody,
+        { headers: reqHeader }
+      ));
+
+    });
+  
+
+    for(let i = 0; i<queryArray.length; i++){
+      const queryResponse = await queryArray[i];
+      const queryData = queryResponse.data.routes[0];
+
+      // We set the new document to be called the current time and include all of the data
+      bulkWriter.set(db.doc(`${activeRoutesArray[i]}/historicalData/${Date.now().toString()}`),{
+        distanceMeters: queryData.distanceMeters, 
+        durationSeconds: parseInt(queryData.duration.slice(0,-1)),
+        encodedPolyline: queryData.polyline.encodedPolyline,
+        time: Date.now()
+      })
+    }
+    
+    await bulkWriter.flush();
+    res.status(200).send("OK");
+
+  } catch (e) {
+
+    res.status(400).send('\tname: ' + e.name + ' message: ' + e.message + ' at: ' + e.at + ' text: ' + e.text);
+
+  }
+
+  return null;
+});
