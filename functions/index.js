@@ -102,11 +102,12 @@ exports.exportData = functions.https.onRequest(async (req, res) => {
       returnString+=`${doc.data().time.toString()},`;
       returnString+=`${doc.data().durationSeconds.toString()}\n`;
     })
-
+    res.set('Access-Control-Allow-Origin', '*');
     res.status(200).send(returnString);
   }
   catch (error) {
     console.log(error);
+    res.set('Access-Control-Allow-Origin', '*');
     res.status(500).send('Server Error, Firestore or Google API may be down');
   }
   return;
@@ -117,10 +118,11 @@ exports.exportData = functions.https.onRequest(async (req, res) => {
 exports.addToActiveRoutes = functions.https.onRequest(async (req, res) => {
   const db = admin.firestore();
   let setData = {};
-
+  let routeName = "";
   try {
     const startArr = req.query.start.split(',');
     const finishArray = req.query.dest.split(',');
+    routeName = decodeURIComponent(req.query.routeName);
     setData = {
       active: true,
       startLat: parseFloat(startArr[0]),
@@ -133,12 +135,12 @@ exports.addToActiveRoutes = functions.https.onRequest(async (req, res) => {
     return;
   }
   
-  if(!('routeName' in req.query)){
-    res.status(400).send('Improperly Formatted Query');
+  if(!('routeName' in req.query) || isNaN(setData.startLat) || isNaN(setData.startLng) || isNaN(setData.finishLat) || isNaN(setData.finishLng)){
+    res.status(400).send('Improperly Formatted Query'); 
     return;
   }
   
-  await db.doc(`activeRoutes/${req.query.routeName}`).set(setData).catch((error)=>{
+  await db.doc(`activeRoutes/${routeName}`).set(setData).catch((error)=>{
     res.status(500).send('Could Not Update Database');
     return;
   });
